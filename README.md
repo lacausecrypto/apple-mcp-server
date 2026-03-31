@@ -160,39 +160,39 @@ cat apple-mcp-audit.jsonl | jq -s 'group_by(.tool) | map({tool: .[0].tool, avg_m
 
 ## Tools
 
-| Tool | Actions | Notable protected/blocked |
-|------|---------|--------------------------|
-| `apple_volume` | 7 | — |
-| `apple_brightness` | 2 | — |
-| `apple_clipboard` | 3 | — |
-| `apple_apps` | 7 | force_quit (protected) |
-| `apple_sysinfo` | 19 | — |
-| `apple_music` | 26 | delete_playlist, remove_from_playlist (protected) |
-| `apple_spotify` | 17 | — |
-| `apple_safari` | 17 | — |
-| `apple_chrome` | 14 | — |
-| `apple_mail` | 10 | send, mark_all_read, move_to_trash (protected) |
-| `apple_calendar` | 8 | delete_event, modify_event (protected) |
-| `apple_reminders` | 10 | delete (protected) |
-| `apple_notes` | 9 | delete (protected) |
-| `apple_finder` | 20 | empty_trash, delete, move, rename, eject (protected) |
-| `apple_windows` | 14 | — |
-| `apple_system` | 30 | sleep (protected); shutdown, restart, logout (blocked) |
-| `apple_screenshot` | 5 | — |
-| `apple_notification` | 1 | — |
-| `apple_keyboard` | 8 | — |
-| `apple_tts` | 3 | — |
-| `apple_twitter` | 11 | post, reply, like, retweet (protected) |
-| `apple_facetime` | 2 | — |
-| `apple_maps` | 2 | — |
-| `apple_contacts` | 9 | delete, update_phone, update_email (protected) |
-| `apple_photos` | 10 | — |
-| `apple_messages` | 5 | send (protected) |
-| `apple_podcasts` | 7 | — |
-| `apple_books` | 5 | — |
-| `apple_iwork` | 11 | — |
-| `apple_preview` | 4 | — |
-| `apple_textedit` | 7 | — |
+| Tool | # | Actions | Protected/Blocked |
+|------|---|---------|-------------------|
+| `apple_volume` | 7 | `get` `set` `up` `down` `mute` `unmute` `info` | — |
+| `apple_brightness` | 2 | `up` `down` | — |
+| `apple_clipboard` | 3 | `get` `set` `clear` | — |
+| `apple_apps` | 7 | `open` `quit` `is_running` `list_running` `hide` `activate` `force_quit` | `force_quit` |
+| `apple_sysinfo` | 19 | `battery` `disk` `uptime` `ip` `macos_version` `cpu` `memory` `top_processes` `hostname` `resolution` `summary` `bluetooth_devices` `audio_devices` `printers` `displays` `usb_devices` `network_interfaces` `serial_number` `model` | — |
+| `apple_music` | 26 | `play` `pause` `stop` `next` `prev` `restart` `now_playing` `shuffle_on` `shuffle_off` `repeat_off` `repeat_one` `repeat_all` `play_playlist` `list_playlists` `set_volume` `love` `dislike` `search` `play_song` `queue_next` `add_to_playlist` `create_playlist` `get_lyrics` `radio` `remove_from_playlist` `delete_playlist` | `delete_playlist` `remove_from_playlist` |
+| `apple_spotify` | 17 | `play` `pause` `next` `prev` `now_playing` `set_volume` `shuffle` `playpause` `play_playlist` `list_playlists` `like` `repeat_off` `repeat_on` `search` `play_track` `current_album` `current_artist` | — |
+| `apple_safari` | 17 | `open_url` `current_url` `current_title` `list_tabs` `close_tab` `new_tab` `reload` `page_text` `reading_list` `js_execute` `back` `forward` `bookmarks` `history_recent` `private_window` `close_window` `tab_count` | — |
+| `apple_chrome` | 14 | `open_url` `current_url` `current_title` `list_tabs` `close_tab` `reload` `js_execute` `back` `forward` `new_window` `new_incognito` `close_window` `tab_count` `new_tab` | — |
+| `apple_mail` | 10 | `unread_count` `check` `unread_list` `read_body` `search` `draft` `mailboxes` `send` `mark_all_read` `move_to_trash` | `send` `mark_all_read` `move_to_trash` |
+| `apple_calendar` | 8 | `list` `today` `tomorrow` `create_event` `week` `date_events` `delete_event` `modify_event` | `delete_event` `modify_event` |
+| `apple_reminders` | 10 | `list_lists` `list` `add` `complete` `set_due` `set_priority` `add_note` `overdue` `create_list` `delete` | `delete` |
+| `apple_notes` | 9 | `list` `create` `read` `search` `folders` `move` `append` `count` `delete` | `delete` |
+| `apple_finder` | 20 | `open_folder` `reveal` `desktop_files` `trash_count` `create_folder` `file_info` `copy` `get_selection` `tags` `set_tag` `list_folder` `disk_info` `empty_trash` `delete` `move` `rename` `eject_disk` `eject_all` `set_wallpaper` `create_alias` | `empty_trash` `delete` `move` `rename` `eject_disk` `eject_all` `set_wallpaper` |
+| `apple_windows` | 14 | `frontmost_app` `minimize` `minimize_all` `maximize` `left_half` `right_half` `fullscreen` `close` `hide_app` `hide_others` `center` `resize` `list_windows` `switch_to` | — |
+| `apple_system` | 30 | `sleep_display` `lock` `dark_mode` `dnd_on` `dnd_off` `caffeinate` `decaffeinate` `wifi_status` `wifi_on` `wifi_off` `wifi_network` `bluetooth_on` `bluetooth_off` `run_shortcut` `list_shortcuts` `open_prefs` `display_settings` `sound_settings` `network_settings` `airdrop` `screen_saver` `login_items` `time_machine` `audio_output` `audio_input` `sleep` `eject_all_disks` `shutdown` `restart` `logout` | `sleep` `eject_all_disks` · Blocked: `shutdown` `restart` `logout` |
+| `apple_screenshot` | 5 | `full` `clipboard` `timed` `area` `window` | — |
+| `apple_notification` | 1 | `send` | — |
+| `apple_keyboard` | 8 | `type_text` `press_key` `copy` `paste` `undo` `redo` `save` `select_all` | — |
+| `apple_tts` | 3 | `say` `list_voices` `stop` | — |
+| `apple_twitter` | 11 | `draft` `save` `list_drafts` `feed` `notifications` `dm_check` `post` `post_draft` `reply` `like` `retweet` | `post` `post_draft` `reply` `like` `retweet` |
+| `apple_facetime` | 2 | `call` `audio` | — |
+| `apple_maps` | 2 | `open` `directions` | — |
+| `apple_contacts` | 9 | `search` `get` `list` `create` `groups` `group_members` `delete` `update_phone` `update_email` | `delete` `update_phone` `update_email` |
+| `apple_photos` | 10 | `albums` `recent` `search` `favorites` `album_contents` `export` `count` `create_album` `add_to_album` `import` | — |
+| `apple_messages` | 5 | `recent` `unread` `conversation` `search` `send` | `send` |
+| `apple_podcasts` | 7 | `now_playing` `play` `pause` `next` `shows` `episodes` `search` | — |
+| `apple_books` | 5 | `library` `reading_now` `collections` `search` `open` | — |
+| `apple_iwork` | 11 | `pages_create` `pages_open` `pages_export_pdf` `numbers_create` `numbers_open` `numbers_export_pdf` `keynote_create` `keynote_open` `keynote_export_pdf` `keynote_start_slideshow` `keynote_stop_slideshow` | — |
+| `apple_preview` | 4 | `open` `list_open` `close` `close_all` | — |
+| `apple_textedit` | 7 | `create` `open` `get_text` `set_text` `save` `close` `list_open` | — |
 
 ## Security
 
