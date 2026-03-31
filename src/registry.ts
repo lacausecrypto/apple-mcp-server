@@ -199,6 +199,14 @@ export function buildInputSchema(domain: DomainModule): Record<string, unknown> 
     }
   }
 
+  // Add confirm param (used by permission system for protected actions)
+  properties["confirm"] = {
+    type: "boolean",
+    description:
+      "Set to true to confirm a protected/destructive action. " +
+      "Without this, protected actions return a preview instead of executing.",
+  };
+
   return {
     type: "object",
     required: ["action"],

@@ -38,6 +38,79 @@ Detailed reference for all 31 tools and 303 actions.
 
 ---
 
+## Permission Levels
+
+Every action has a permission level enforced **before execution**. The `confirm` parameter is available on all tools.
+
+### OPEN (default)
+
+Most actions (reading data, playback controls, etc.) execute immediately.
+
+### PROTECTED (require `confirm: true`)
+
+Destructive or irreversible actions. Without `confirm: true`, returns a preview asking Claude to confirm.
+
+| Tool | Action | Reason |
+|------|--------|--------|
+| `apple_finder` | `empty_trash` | Permanently deletes all items in Trash |
+| `apple_finder` | `delete` | Moves file to Trash |
+| `apple_finder` | `eject_all` | Ejects all mounted disks |
+| `apple_finder` | `eject_disk` | Ejects a specific disk |
+| `apple_finder` | `rename` | Renames a file |
+| `apple_finder` | `move` | Moves a file to another location |
+| `apple_finder` | `set_wallpaper` | Changes desktop wallpaper |
+| `apple_mail` | `send` | Sends an email to an external recipient |
+| `apple_mail` | `mark_all_read` | Marks all inbox emails as read |
+| `apple_mail` | `move_to_trash` | Moves an email to trash |
+| `apple_twitter` | `post` | Posts a public tweet |
+| `apple_twitter` | `post_draft` | Posts a saved draft publicly |
+| `apple_twitter` | `reply` | Posts a public reply |
+| `apple_twitter` | `like` | Publicly likes a tweet |
+| `apple_twitter` | `retweet` | Publicly reposts a tweet |
+| `apple_messages` | `send` | Sends an iMessage to a contact |
+| `apple_contacts` | `delete` | Permanently deletes a contact |
+| `apple_contacts` | `update_phone` | Modifies a contact's phone number |
+| `apple_contacts` | `update_email` | Modifies a contact's email |
+| `apple_notes` | `delete` | Permanently deletes a note |
+| `apple_reminders` | `delete` | Deletes a reminder |
+| `apple_music` | `delete_playlist` | Permanently deletes a playlist |
+| `apple_music` | `remove_from_playlist` | Removes a track from a playlist |
+| `apple_calendar` | `delete_event` | Deletes a calendar event |
+| `apple_calendar` | `modify_event` | Modifies a calendar event |
+| `apple_apps` | `force_quit` | Force quits an app (unsaved work may be lost) |
+| `apple_system` | `sleep` | Puts the Mac to sleep |
+| `apple_system` | `eject_all_disks` | Ejects all mounted disks |
+
+### BLOCKED (never executed)
+
+| Tool | Action | Reason |
+|------|--------|--------|
+| `apple_system` | `shutdown` | Dangerous system action |
+| `apple_system` | `restart` | Dangerous system action |
+| `apple_system` | `logout` | Dangerous system action |
+
+### Configuration
+
+Override defaults in `~/.config/apple-mcp/permissions.json`:
+
+```json
+{
+  "blocked": ["empty_trash"],
+  "unprotected": ["like", "send"],
+  "unblocked": ["restart"],
+  "protected": ["play"]
+}
+```
+
+- **`blocked`**: add actions to BLOCKED (never executed)
+- **`unprotected`**: move PROTECTED → OPEN (skip confirmation)
+- **`unblocked`**: move BLOCKED → PROTECTED (allow with confirmation)
+- **`protected`**: move OPEN → PROTECTED (require confirmation)
+
+Use `"actionName"` for all tools or `"apple_tool.actionName"` for a specific tool.
+
+---
+
 ## apple_volume
 
 Control macOS system volume. Actions: get, set, up, down, mute, unmute, info.
@@ -812,27 +885,36 @@ Read-only data Claude can attach to its context without a tool call.
 
 ## Security Reference
 
-### Destructive actions (flagged with warning)
+### Permission enforcement
 
-| Tool | Actions |
-|------|---------|
-| `apple_finder` | `empty_trash`, `delete`, `eject_all` |
-| `apple_system` | `shutdown`, `restart`, `logout`, `sleep`, `eject_all_disks` |
-| `apple_mail` | `send`, `mark_all_read`, `move_to_trash` |
-| `apple_twitter` | `post`, `post_draft`, `reply`, `like`, `retweet` |
-| `apple_contacts` | `delete` |
-| `apple_notes` | `delete` |
-| `apple_reminders` | `delete` |
-| `apple_music` | `delete_playlist`, `remove_from_playlist` |
-| `apple_apps` | `force_quit` |
+Actions are checked **before execution** at three levels: OPEN, PROTECTED (require `confirm: true`), BLOCKED (never executed). See [Permission Levels](#permission-levels) for the full list.
 
-### Blocked paths
+Config: `~/.config/apple-mcp/permissions.json`
 
-File operations reject paths under: `/System`, `/usr`, `/bin`, `/sbin`, `/private/var`, `/Library/LaunchDaemons`, `/Library/LaunchAgents`
+### Path allowlist
 
-### Concurrency-protected actions
+`safePath()` only permits paths under: `~/`, `/tmp`, `/private/tmp`, `/Volumes/nvme`, `/Applications`. Everything else is rejected (allowlist, not blocklist).
 
-Safari and Chrome tab operations are serialized with `withLock()` to prevent race conditions:
+Note: `~/` includes `~/Library` and `~/.ssh` — known trade-off.
+
+### Input validation
+
+| Function | Protects against |
+|----------|-----------------|
+| `safeAS()` | Quote/backslash injection in AppleScript strings |
+| `safeSQL()` | `;`, `--`, `/* */`, UNION, DDL keywords, hex literals |
+| `safeAppName()` | Shell metacharacters in app names |
+| `safePath()` | Access outside allowed directories |
+
+This is input validation, not sandboxing. The process runs with full user privileges.
+
+### Concurrency guards
+
+`withLock()` serializes tab operations:
 
 - **Safari**: `js_execute`, `back`, `forward`, `page_text`, `close_tab`, `reload`
 - **Chrome**: `js_execute`, `back`, `forward`, `close_tab`, `reload`
+
+### What this does NOT provide
+
+No sandboxing, no network isolation, no encryption, no MCP auth. Suitable for personal use.

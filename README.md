@@ -1,17 +1,15 @@
 # Apple MCP Server
 
-An MCP (Model Context Protocol) server that exposes macOS system controls and Apple apps as structured tools for Claude. Built with TypeScript and the official `@modelcontextprotocol/sdk`.
+An MCP server that exposes macOS system controls and Apple apps as structured tools for Claude. Built with TypeScript and the official `@modelcontextprotocol/sdk`.
 
-**31 tools, 303 actions, 4 resources.** Each Apple app is a single MCP tool with an `action` parameter — Claude sees the available actions and calls them directly.
-
-Everything runs via AppleScript and shell commands. No API keys, no external services, no dependencies beyond the MCP SDK and Zod.
+**31 tools, 303 actions, 4 resources.** Each Apple app is a single MCP tool with an `action` parameter.
 
 ## Requirements
 
-- macOS (tested on macOS 15 / Sequoia with Apple Silicon)
+- macOS (tested on macOS 15 with Apple Silicon)
 - Node.js 18+
 - Claude CLI or any MCP-compatible client
-- Some features require: "Allow JavaScript from Apple Events" enabled in Safari > Develop menu
+- Some features require "Allow JavaScript from Apple Events" in Safari > Develop
 
 ## Setup
 
@@ -37,146 +35,198 @@ Register in your MCP config (`~/.claude/.mcp.json` or project `.mcp.json`):
 
 ## How it works
 
-Claude calls a tool like `apple_music` with `{"action": "now_playing"}`. The server dispatches to the Music domain handler, which executes AppleScript via a temp file and returns the result.
-
 ```
-Claude  ──stdio──>  index.ts (dispatch)
-                       │
-                   registry.ts (find domain + validate params)
-                       │
-                   domains/music.ts (handler)
-                       │
-                   executor.ts (runAppleScript via temp file)
-                       │
-                   osascript ──> Apple Music
+Claude calls apple_music with {action: "now_playing"}
+  → index.ts checks permissions (OPEN → proceed)
+  → dispatches to domains/music.ts handler
+  → handler calls runAppleScript() in executor.ts
+  → AppleScript written to temp file, executed via osascript
+  → result returned to Claude: "Bohemian Rhapsody — Queen (3:21/5min)"
 ```
 
-If an app isn't running, the server auto-launches it and retries once.
+## Permission System
+
+Actions are classified into three levels. **Conservative by default** — destructive actions require explicit confirmation.
+
+### OPEN (default)
+
+Read-only and safe actions execute immediately. No confirmation needed.
+
+```
+Claude: apple_volume.get → "Volume: 56%"
+Claude: apple_music.now_playing → "Bohemian Rhapsody — Queen"
+Claude: apple_sysinfo.battery → "95%; charging"
+```
+
+### PROTECTED (27 actions)
+
+Destructive or irreversible actions return a preview and require `confirm: true` to execute.
+
+```
+Claude: apple_finder.empty_trash
+→ "⚠️ apple_finder.empty_trash requires confirmation.
+   Reason: Permanently deletes all items in Trash
+   To proceed, call again with confirm: true."
+
+Claude: apple_finder.empty_trash with confirm: true
+→ "Trash emptied"
+```
+
+Protected actions include: file delete/move/rename, send email/iMessage, post/like/reply on Twitter, delete contacts/notes/reminders/events, force quit apps, system sleep.
+
+### BLOCKED (3 actions)
+
+Never executed. Returns an error with instructions to unblock.
+
+```
+Claude: apple_system.shutdown
+→ "🚫 apple_system.shutdown is blocked.
+   Blocked by default (dangerous system action)."
+```
+
+Blocked by default: `shutdown`, `restart`, `logout`.
+
+### Configuration
+
+Override defaults via `~/.config/apple-mcp/permissions.json`:
+
+```json
+{
+  "blocked": ["empty_trash"],
+  "unprotected": ["like", "send"],
+  "unblocked": ["restart"],
+  "protected": ["play", "pause"]
+}
+```
+
+| Key | Effect |
+|-----|--------|
+| `blocked` | Add actions to BLOCKED (on top of defaults) |
+| `unprotected` | Move from PROTECTED → OPEN (skip confirmation) |
+| `unblocked` | Move from BLOCKED → PROTECTED (allow with confirmation) |
+| `protected` | Move from OPEN → PROTECTED (add confirmation) |
+
+Actions can be specified as `"actionName"` (global) or `"apple_tool.actionName"` (specific).
 
 ## Tools
 
-31 tools covering all major Apple apps and macOS system functions. Each tool groups related actions under a single `action` parameter.
+| Tool | Actions | Notable protected/blocked |
+|------|---------|--------------------------|
+| `apple_volume` | 7 | — |
+| `apple_brightness` | 2 | — |
+| `apple_clipboard` | 3 | — |
+| `apple_apps` | 7 | force_quit (protected) |
+| `apple_sysinfo` | 19 | — |
+| `apple_music` | 26 | delete_playlist, remove_from_playlist (protected) |
+| `apple_spotify` | 17 | — |
+| `apple_safari` | 17 | — |
+| `apple_chrome` | 14 | — |
+| `apple_mail` | 10 | send, mark_all_read, move_to_trash (protected) |
+| `apple_calendar` | 8 | delete_event, modify_event (protected) |
+| `apple_reminders` | 10 | delete (protected) |
+| `apple_notes` | 9 | delete (protected) |
+| `apple_finder` | 20 | empty_trash, delete, move, rename, eject (protected) |
+| `apple_windows` | 14 | — |
+| `apple_system` | 30 | sleep (protected); shutdown, restart, logout (blocked) |
+| `apple_screenshot` | 5 | — |
+| `apple_notification` | 1 | — |
+| `apple_keyboard` | 8 | — |
+| `apple_tts` | 3 | — |
+| `apple_twitter` | 11 | post, reply, like, retweet (protected) |
+| `apple_facetime` | 2 | — |
+| `apple_maps` | 2 | — |
+| `apple_contacts` | 9 | delete, update_phone, update_email (protected) |
+| `apple_photos` | 10 | — |
+| `apple_messages` | 5 | send (protected) |
+| `apple_podcasts` | 7 | — |
+| `apple_books` | 5 | — |
+| `apple_iwork` | 11 | — |
+| `apple_preview` | 4 | — |
+| `apple_textedit` | 7 | — |
 
-| Tool | # | Actions |
-|------|---|---------|
-| `apple_volume` | 7 | get, set, up, down, mute, unmute, info |
-| `apple_brightness` | 2 | up, down |
-| `apple_clipboard` | 3 | get, set, clear |
-| `apple_apps` | 7 | open, quit, force_quit, is_running, list_running, hide, activate |
-| `apple_sysinfo` | 19 | battery, disk, uptime, ip, macos_version, cpu, memory, top_processes, hostname, resolution, summary, bluetooth_devices, audio_devices, printers, displays, usb_devices, network_interfaces, serial_number, model |
-| `apple_music` | 26 | play, pause, stop, next, prev, restart, now_playing, shuffle_on, shuffle_off, repeat_off, repeat_one, repeat_all, play_playlist, list_playlists, set_volume, love, dislike, search, play_song, queue_next, add_to_playlist, remove_from_playlist, create_playlist, delete_playlist, get_lyrics, radio |
-| `apple_spotify` | 17 | play, pause, next, prev, now_playing, set_volume, shuffle, playpause, play_playlist, list_playlists, like, repeat_off, repeat_on, search, play_track, current_album, current_artist |
-| `apple_safari` | 17 | open_url, current_url, current_title, list_tabs, close_tab, new_tab, reload, page_text, reading_list, js_execute, back, forward, bookmarks, history_recent, private_window, close_window, tab_count |
-| `apple_chrome` | 14 | open_url, current_url, current_title, list_tabs, close_tab, reload, js_execute, back, forward, new_window, new_incognito, close_window, tab_count, new_tab |
-| `apple_mail` | 10 | unread_count, check, unread_list, send, mark_all_read, read_body, search, draft, mailboxes, move_to_trash |
-| `apple_calendar` | 8 | list, today, tomorrow, create_event, delete_event, week, date_events, modify_event |
-| `apple_reminders` | 10 | list_lists, list, add, complete, delete, set_due, set_priority, add_note, overdue, create_list |
-| `apple_notes` | 9 | list, create, read, search, delete, folders, move, append, count |
-| `apple_finder` | 20 | open_folder, reveal, desktop_files, empty_trash, trash_count, eject_disk, eject_all, set_wallpaper, create_folder, file_info, rename, move, copy, delete, create_alias, get_selection, tags, set_tag, list_folder, disk_info |
-| `apple_windows` | 14 | frontmost_app, minimize, minimize_all, maximize, left_half, right_half, fullscreen, close, hide_app, hide_others, center, resize, list_windows, switch_to |
-| `apple_system` | 30 | sleep, sleep_display, restart, shutdown, logout, lock, dark_mode, dnd_on, dnd_off, caffeinate, decaffeinate, wifi_status, wifi_on, wifi_off, wifi_network, bluetooth_on, bluetooth_off, run_shortcut, list_shortcuts, open_prefs, display_settings, sound_settings, network_settings, airdrop, screen_saver, login_items, eject_all_disks, time_machine, audio_output, audio_input |
-| `apple_screenshot` | 5 | full, clipboard, timed, area, window |
-| `apple_notification` | 1 | send |
-| `apple_keyboard` | 8 | type_text, press_key, copy, paste, undo, redo, save, select_all |
-| `apple_tts` | 3 | say, list_voices, stop |
-| `apple_twitter` | 11 | post, draft, save, list_drafts, post_draft, reply, like, retweet, feed, notifications, dm_check |
-| `apple_facetime` | 2 | call, audio |
-| `apple_maps` | 2 | open, directions |
-| `apple_contacts` | 9 | search, get, list, create, groups, group_members, delete, update_phone, update_email |
-| `apple_photos` | 10 | albums, recent, search, favorites, album_contents, export, count, create_album, add_to_album, import |
-| `apple_messages` | 5 | recent, send, unread, conversation, search |
-| `apple_podcasts` | 7 | now_playing, play, pause, next, shows, episodes, search |
-| `apple_books` | 5 | library, reading_now, collections, search, open |
-| `apple_iwork` | 11 | pages_create, pages_open, pages_export_pdf, numbers_create, numbers_open, numbers_export_pdf, keynote_create, keynote_open, keynote_export_pdf, keynote_start_slideshow, keynote_stop_slideshow |
-| `apple_preview` | 4 | open, list_open, close, close_all |
-| `apple_textedit` | 7 | create, open, get_text, set_text, save, close, list_open |
+## Security
+
+### What this provides
+
+**Permission system** — Three-level access control (OPEN/PROTECTED/BLOCKED) enforced before execution. Protected actions require explicit `confirm: true`. Configurable via JSON file.
+
+**Input validation** — Not sandboxing. The server validates inputs before passing them to AppleScript or shell:
+
+| Function | What it does |
+|----------|-------------|
+| `safePath()` | **Allowlist**: only permits paths under `~/`, `/tmp`, `/Volumes/nvme`, `/Applications`. Everything else rejected. |
+| `safeAS()` | Escapes `\` and `"` for AppleScript string interpolation. Prevents script injection inside quoted strings. |
+| `safeSQL()` | Escapes quotes, strips `;`, `--`, `/* */`, UNION, DDL keywords, hex literals. Used for iMessage sqlite3 queries. |
+| `safeAppName()` | Strips shell metacharacters from app names. |
+
+**Concurrency** — `withLock()` serializes Safari and Chrome tab operations to prevent race conditions.
+
+**Execution safety** — AppleScript runs via temp `.scpt` files (not `-e` flag). Shell commands use `execFile` with array arguments (no shell interpolation).
+
+**Auto-launch** — Apps that aren't running are launched automatically on `-600` error and retried once.
+
+**Logging** — All tool calls, permission checks, and errors logged to `~/.local/occ/rag/apple-mcp.log`.
+
+### What this does NOT provide
+
+- **No sandboxing.** The Node process runs with your full user privileges. It can do anything you can do.
+- **No network isolation.** The server communicates via stdio (local only), but the actions it executes (email, tweets, etc.) reach the internet.
+- **No encryption.** Log files and the permission config are plain text.
+- **No authentication on the MCP transport.** Any process that can connect to stdio can call tools.
+- **safePath is an allowlist, not a jail.** It prevents operations on system paths, but `~/` is allowed — which includes `~/Library`, `~/.ssh`, etc.
+
+**This is suitable for personal use on your own Mac.** It is not designed for multi-user environments or adversarial contexts.
 
 ## Resources
-
-The server also exposes MCP resources (read-only data):
 
 | URI | Description |
 |-----|-------------|
 | `apple://now-playing` | Current track from Apple Music or Spotify |
 | `apple://system-info` | Battery, disk, uptime, CPU load, RAM |
-| `apple://open-tabs/safari` | All open Safari tabs (title + URL) |
-| `apple://open-tabs/chrome` | All open Chrome tabs (title + URL) |
+| `apple://open-tabs/safari` | All open Safari tabs |
+| `apple://open-tabs/chrome` | All open Chrome tabs |
 
 ## Adding a new domain
 
-1. Create `src/domains/myapp.ts`:
-
-```typescript
-import { runAppleScript, safeAS } from "../executor.js";
-import type { DomainModule } from "../types.js";
-
-const domain: DomainModule = {
-  name: "apple_myapp",
-  description: "Control MyApp. Actions: do_thing.",
-  actions: {
-    do_thing: {
-      description: "Does a thing",
-      handler: async () => {
-        const r = await runAppleScript('tell application "MyApp" to do thing');
-        return r.ok ? r.output : `Error: ${r.output}`;
-      },
-    },
-  },
-};
-export default domain;
-```
-
+1. Create `src/domains/myapp.ts` (see existing domains for pattern)
 2. Import and register in `src/registry.ts`
-3. `npm run build && npm test`
-
-## Security
-
-All execution goes through `executor.ts` which provides:
-
-| Function | Purpose |
-|----------|---------|
-| `safeAS(s)` | Escapes `\` and `"` for AppleScript string interpolation |
-| `safePath(p)` | Blocks `/System`, `/usr`, `/bin`, `/sbin`, `/private/var` and path traversal |
-| `safeSQL(s)` | Escapes quotes, strips `;` and `--`, limits to 500 chars |
-| `safeAppName(s)` | Strips shell metacharacters from app names |
-| `withLock(resource, fn)` | Serializes concurrent access to Safari/Chrome tabs |
-| Temp file execution | AppleScript runs via temp `.scpt` files, not `-e` flag |
-| `execFile` with arrays | Shell commands use `execFile` (no shell interpolation) |
-
-Destructive actions (`empty_trash`, `delete`, `shutdown`, `send`, etc.) are flagged in the response.
-
-## Known limitations
-
-- **Books and Podcasts** have very limited AppleScript support. Some actions may return generic errors.
-- **Spotify** doesn't expose playlists or "like" via AppleScript. These actions use URL schemes as fallback (opens the Spotify app).
-- **Safari JavaScript execution** requires "Allow JavaScript from Apple Events" in Safari > Develop menu.
-- **Contacts, Photos, Calendar, Mail** need to be launched before use. The server handles this automatically (auto-launch on -600 error), but the first call may take a few extra seconds.
-- **Twitter/X** actions depend on the current Safari DOM structure, which may change.
+3. If destructive, add to `DEFAULT_PROTECTED` in `src/permissions.ts`
+4. `npm run build && npm test`
 
 ## Testing
 
 ```bash
 npm run build
-npm test    # 47 tests (executor safety functions + registry validation)
+npm test    # 135 tests (executor + registry + permissions)
 ```
+
+## Known limitations
+
+- **Books and Podcasts** have limited AppleScript support. Some actions return generic errors.
+- **Spotify** doesn't expose playlists or "like" via AppleScript. Uses URL schemes as fallback.
+- **Safari JS execution** requires "Allow JavaScript from Apple Events" in Safari > Develop.
+- **Twitter/X** actions depend on the current DOM structure, which may change.
+- **safePath** allows all of `~/` — including sensitive directories like `~/.ssh` and `~/Library`.
 
 ## Logging
 
-Tool calls and errors are logged to `~/.local/occ/rag/apple-mcp.log`.
+`~/.local/occ/rag/apple-mcp.log`
 
 ## Project structure
 
 ```
 src/
-  index.ts          Server entry (stdio transport, tool dispatch, destructive warnings)
+  index.ts          Server entry, permission enforcement, tool dispatch
+  permissions.ts    Three-level permission system with config file
   types.ts          Interfaces: ExecResult, DomainModule, DomainAction, ResourceDef
-  executor.ts       Execution layer: AppleScript, shell, caching, locking, logging, safety
+  executor.ts       Execution layer: AppleScript, shell, caching, locking, safety
   registry.ts       Domain registry and JSON Schema builder
   domains/          31 domain files (one per Apple app/category)
   resources/        4 MCP resource providers
 tests/
-  executor.test.js  28 tests for safety functions
-  registry.test.js  19 tests for domain registration and schema generation
+  executor.test.js  Safety function tests
+  registry.test.js  Domain registration tests
+  permissions.test.js  Permission system tests
 ```
 
 ## License

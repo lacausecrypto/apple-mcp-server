@@ -3,18 +3,13 @@
  * Apple MCP Server — macOS system controls as MCP tools for Claude.
  *
  * 31 domain tools exposing 303 actions across all Apple apps.
- * Each tool has an "action" parameter selecting the specific function.
  *
- * Features:
- * - Clean error messages (no temp file paths, translated error codes)
- * - Auto-launch apps on -600 error (app not running) with retry
- * - Destructive action warnings (empty_trash, delete, shutdown, etc.)
- * - Path sanitization for file operations
- * - Response caching for expensive system_profiler calls
- * - Concurrency guards for single-resource tools (Safari, Chrome)
- * - Full logging to ~/.local/occ/rag/apple-mcp.log
+ * Permission system (conservative by default):
+ *   OPEN      → execute immediately (read-only, safe actions)
+ *   PROTECTED → requires confirm: true param (destructive/irreversible)
+ *   BLOCKED   → never executed (dangerous system actions)
  *
- * Transport: stdio (for Claude CLI integration)
+ * Configurable via ~/.config/apple-mcp/permissions.json
  */
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -27,30 +22,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { getDomains, getResources, buildInputSchema } from "./registry.js";
 import { log } from "./executor.js";
-
-// ══════════════════════════════════════════════════════════════════
-// DESTRUCTIVE ACTIONS — warn Claude before executing
-// ══════════════════════════════════════════════════════════════════
-
-const DESTRUCTIVE_ACTIONS: Record<string, Set<string>> = {
-  apple_finder: new Set(["empty_trash", "delete", "eject_all", "eject_disk"]),
-  apple_system: new Set(["shutdown", "restart", "logout", "sleep", "eject_all_disks"]),
-  apple_mail: new Set(["send", "mark_all_read", "move_to_trash"]),
-  apple_twitter: new Set(["post", "post_draft", "reply", "like", "retweet"]),
-  apple_contacts: new Set(["delete", "update_phone", "update_email"]),
-  apple_notes: new Set(["delete", "move"]),
-  apple_reminders: new Set(["delete"]),
-  apple_music: new Set(["delete_playlist", "remove_from_playlist"]),
-  apple_photos: new Set(["add_to_album", "import"]),
-  apple_apps: new Set(["quit", "force_quit"]),
-  apple_calendar: new Set(["delete_event", "modify_event"]),
-  apple_clipboard: new Set(["clear"]),
-  apple_messages: new Set(["send"]),
-};
-
-function isDestructive(toolName: string, action: string): boolean {
-  return DESTRUCTIVE_ACTIONS[toolName]?.has(action) ?? false;
-}
+import { checkPermission, getPermissionSummary } from "./permissions.js";
 
 // ══════════════════════════════════════════════════════════════════
 // SERVER SETUP
@@ -65,6 +37,7 @@ const domains = getDomains();
 const resources = getResources();
 
 log("INFO", `Apple MCP Server starting: ${domains.length} tools, ${resources.length} resources`);
+log("INFO", `Permissions:\n${getPermissionSummary()}`);
 
 // ══════════════════════════════════════════════════════════════════
 // TOOL LISTING
@@ -79,16 +52,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 }));
 
 // ══════════════════════════════════════════════════════════════════
-// TOOL EXECUTION
+// TOOL EXECUTION — with permission enforcement
 // ══════════════════════════════════════════════════════════════════
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
   const action = (args?.action as string) || "";
+  const confirm = args?.confirm === true;
 
-  log("INFO", `Tool call: ${name}.${action}`);
+  log("INFO", `Tool call: ${name}.${action}${confirm ? " (confirmed)" : ""}`);
 
-  // Find the domain
+  // ── Find domain ──
   const domain = domains.find((d) => d.name === name);
   if (!domain) {
     log("WARN", `Unknown tool: ${name}`);
@@ -98,22 +72,44 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     };
   }
 
-  // Get the action
+  // ── Find action ──
   const actionDef = domain.actions[action];
   if (!actionDef) {
     const available = Object.keys(domain.actions).join(", ");
     return {
-      content: [
-        {
-          type: "text",
-          text: `Unknown action "${action}" for ${name}. Available: ${available}`,
-        },
-      ],
+      content: [{
+        type: "text",
+        text: `Unknown action "${action}" for ${name}. Available: ${available}`,
+      }],
       isError: true,
     };
   }
 
-  // Validate params if schema defined
+  // ── Permission check (BEFORE execution) ──
+  const perm = checkPermission(name, action);
+
+  if (perm.level === "blocked") {
+    log("WARN", `BLOCKED: ${name}.${action} — ${perm.reason}`);
+    return {
+      content: [{
+        type: "text",
+        text: `🚫 ${name}.${action} is blocked. ${perm.reason}.\n\nTo unblock, add "${action}" to the "unblocked" array in ~/.config/apple-mcp/permissions.json`,
+      }],
+      isError: true,
+    };
+  }
+
+  if (perm.level === "protected" && !confirm) {
+    log("INFO", `PROTECTED: ${name}.${action} — awaiting confirmation`);
+    return {
+      content: [{
+        type: "text",
+        text: `⚠️ ${name}.${action} requires confirmation.\n\nReason: ${perm.reason}\n\nTo proceed, call again with confirm: true.\nTo bypass this for future calls, add "${action}" to "unprotected" in ~/.config/apple-mcp/permissions.json`,
+      }],
+    };
+  }
+
+  // ── Validate params ──
   if (actionDef.params) {
     const validation = actionDef.params.safeParse(args);
     if (!validation.success) {
@@ -127,11 +123,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
   }
 
-  // Execute the action
+  // ── Execute ──
   try {
     const result = await actionDef.handler(args ?? {});
 
-    // Guard against undefined/null handler returns
     if (typeof result !== "string") {
       log("WARN", `${name}.${action} returned ${typeof result} instead of string`);
       return {
@@ -139,14 +134,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       };
     }
 
-    // Warn if this was a destructive action
-    const warning = isDestructive(name, action)
-      ? "\n⚠️ This was a destructive action."
-      : "";
-
     log("INFO", `Result: ${name}.${action} → ${result.slice(0, 80)}`);
-
-    return { content: [{ type: "text", text: result + warning }] };
+    return { content: [{ type: "text", text: result }] };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log("ERROR", `${name}.${action} threw: ${msg}`);
@@ -177,10 +166,7 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => ({
 server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   const { uri } = request.params;
   const resource = resources.find((r) => r.uri === uri);
-
-  if (!resource) {
-    throw new Error(`Unknown resource: ${uri}`);
-  }
+  if (!resource) throw new Error(`Unknown resource: ${uri}`);
 
   const content = await resource.read();
   return {
