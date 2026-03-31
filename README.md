@@ -1,5 +1,14 @@
 # Apple MCP Server
 
+![Tools](https://img.shields.io/badge/tools-31-blue?style=flat-square)
+![Actions](https://img.shields.io/badge/actions-303-green?style=flat-square)
+![Resources](https://img.shields.io/badge/resources-4-cyan?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-135_passing-brightgreen?style=flat-square)
+![Platform](https://img.shields.io/badge/platform-macOS-lightgrey?style=flat-square&logo=apple)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![MCP](https://img.shields.io/badge/MCP-SDK_1.7-8B5CF6?style=flat-square)
+![License](https://img.shields.io/badge/license-MIT-yellow?style=flat-square)
+
 An MCP server that exposes macOS system controls and Apple apps as structured tools for Claude. Built with TypeScript and the official `@modelcontextprotocol/sdk`.
 
 **31 tools, 303 actions, 4 resources.** Each Apple app is a single MCP tool with an `action` parameter.
