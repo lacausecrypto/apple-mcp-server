@@ -331,38 +331,36 @@ export function safeAppName(name: string): string {
 // PATH SANITIZATION
 // ══════════════════════════════════════════════════════════════════
 
-// Forbidden path prefixes — never allow operations on these
-const FORBIDDEN_PATHS = [
-  "/System",
-  "/usr",
-  "/bin",
-  "/sbin",
-  "/etc",
-  "/var",
-  "/private/var",
-  "/private/etc",
-  "/Library/LaunchDaemons",
-  "/Library/LaunchAgents",
-  "/Library/Preferences",
-  "/Library/StartupItems",
-  "/opt",
+// Allowlist: ONLY these path prefixes are permitted for file operations.
+// Everything else is rejected. This is safer than a blocklist because
+// new dangerous paths are blocked by default.
+const ALLOWED_PREFIXES = [
+  homedir(),               // ~/  (Desktop, Documents, Downloads, etc.)
+  "/tmp",                  // Temp files
+  "/private/tmp",          // macOS /tmp symlink target
+  "/Volumes/nvme",         // External NVMe drive
+  "/Applications",         // App bundles (read-only mostly)
 ];
 
 /**
- * Validate and sanitize a file path for safe file operations.
+ * Validate and sanitize a file path using an **allowlist** approach.
  *
- * Resolves `~`, normalizes the path to absolute, blocks `..` traversal,
- * and rejects paths under protected system directories.
+ * Only paths under explicitly allowed prefixes are accepted.
+ * Resolves `~`, normalizes to absolute, rejects `..` traversal.
+ *
+ * Allowed: ~/anything, /tmp/*, /Volumes/nvme/*, /Applications/*
+ * Blocked: everything else (/System, /usr, /etc, /var, /Library, ...)
  *
  * @param inputPath - Raw file path (absolute, relative, or `~`-prefixed)
- * @returns Resolved absolute path, or `null` if the path is empty, unsafe, or under a forbidden prefix
+ * @returns Resolved absolute path, or `null` if not under an allowed prefix
  *
  * @example
  * ```ts
  * safePath("~/Documents/file.txt")   // "/Users/martin/Documents/file.txt"
  * safePath("/tmp/test.txt")           // "/tmp/test.txt"
- * safePath("/System/Library/Fonts")   // null (blocked)
- * safePath("/usr/bin/sh")             // null (blocked)
+ * safePath("/Volumes/nvme/projet")    // "/Volumes/nvme/projet"
+ * safePath("/System/Library/Fonts")   // null (not in allowlist)
+ * safePath("/etc/passwd")             // null (not in allowlist)
  * safePath("")                        // null (empty)
  * ```
  */
@@ -377,13 +375,12 @@ export function safePath(inputPath: string): string | null {
   // Resolve to absolute
   resolved = resolve(normalize(resolved));
 
-  // Block path traversal (.. after resolve shouldn't happen, but check)
+  // Block path traversal
   if (resolved.includes("..")) return null;
 
-  // Block system paths
-  for (const prefix of FORBIDDEN_PATHS) {
-    if (resolved.startsWith(prefix)) return null;
-  }
+  // Allowlist check — must be under an allowed prefix
+  const allowed = ALLOWED_PREFIXES.some((prefix) => resolved.startsWith(prefix));
+  if (!allowed) return null;
 
   return resolved;
 }

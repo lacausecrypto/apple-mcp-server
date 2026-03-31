@@ -111,19 +111,38 @@ describe("safePath", () => {
     assert.equal(safePath("/Library/LaunchAgents/evil.plist"), null);
   });
 
-  // Allowed paths
+  // Allowlist: ONLY ~/*, /tmp/*, /Volumes/nvme/*, /Applications/*
   it("allows /tmp", () => {
     assert.equal(safePath("/tmp/test.txt"), "/tmp/test.txt");
   });
 
-  it("allows /Users paths", () => {
-    const result = safePath("/Users/testuser/Documents/file.txt");
-    assert.equal(result, "/Users/testuser/Documents/file.txt");
+  it("allows home directory paths", () => {
+    const result = safePath("~/Documents/file.txt");
+    assert.ok(result !== null);
+    assert.ok(!result.startsWith("~"));
+    assert.ok(result.endsWith("/Documents/file.txt"));
   });
 
-  it("allows /Volumes paths", () => {
-    const result = safePath("/Volumes/nvme/data");
-    assert.equal(result, "/Volumes/nvme/data");
+  it("allows /Volumes/nvme", () => {
+    assert.equal(safePath("/Volumes/nvme/data"), "/Volumes/nvme/data");
+  });
+
+  it("allows /Applications", () => {
+    const result = safePath("/Applications/Safari.app");
+    assert.equal(result, "/Applications/Safari.app");
+  });
+
+  // Blocked by allowlist (not in allowed prefixes)
+  it("blocks /Volumes/other (not nvme)", () => {
+    assert.equal(safePath("/Volumes/other/data"), null);
+  });
+
+  it("blocks /Users/other (not home)", () => {
+    assert.equal(safePath("/Users/otheruser/secrets"), null);
+  });
+
+  it("blocks random absolute paths", () => {
+    assert.equal(safePath("/some/random/path"), null);
   });
 
   // Edge cases
@@ -131,17 +150,10 @@ describe("safePath", () => {
     assert.equal(safePath(""), null);
   });
 
-  it("expands ~ to home directory", () => {
-    const result = safePath("~/Documents/test.txt");
+  it("resolves ~ to home", () => {
+    const result = safePath("~/Desktop/screenshot.png");
     assert.ok(result !== null);
-    assert.ok(!result.startsWith("~"), "should not start with ~");
-    assert.ok(result.endsWith("/Documents/test.txt"));
-  });
-
-  it("resolves relative paths to absolute", () => {
-    const result = safePath("relative/path");
-    assert.ok(result !== null);
-    assert.ok(result.startsWith("/"), "should be absolute");
+    assert.ok(result.includes("Desktop"));
   });
 });
 
@@ -205,30 +217,43 @@ describe("safeSQL", () => {
   });
 });
 
-describe("safePath (extended)", () => {
-  it("blocks /etc", () => {
+describe("safePath (allowlist coverage)", () => {
+  it("blocks /etc (not in allowlist)", () => {
     assert.equal(safePath("/etc/passwd"), null);
   });
 
-  it("blocks /var", () => {
+  it("blocks /var (not in allowlist)", () => {
     assert.equal(safePath("/var/log/system.log"), null);
   });
 
-  it("blocks /opt", () => {
+  it("blocks /opt (not in allowlist)", () => {
     assert.equal(safePath("/opt/homebrew/bin"), null);
   });
 
-  it("blocks /private/etc", () => {
+  it("blocks /private/etc (not in allowlist)", () => {
     assert.equal(safePath("/private/etc/hosts"), null);
   });
 
-  it("blocks /Library/Preferences", () => {
+  it("blocks /Library (not in allowlist)", () => {
     assert.equal(safePath("/Library/Preferences/com.apple.plist"), null);
   });
 
-  it("allows ~/Desktop", () => {
+  it("blocks /dev (not in allowlist)", () => {
+    assert.equal(safePath("/dev/null"), null);
+  });
+
+  it("blocks /proc-like paths (not in allowlist)", () => {
+    assert.equal(safePath("/cores/something"), null);
+  });
+
+  it("allows ~/Desktop (under home)", () => {
     const result = safePath("~/Desktop/file.txt");
     assert.ok(result !== null);
     assert.ok(result.includes("Desktop"));
+  });
+
+  it("allows /private/tmp (macOS tmp target)", () => {
+    const result = safePath("/private/tmp/test.txt");
+    assert.equal(result, "/private/tmp/test.txt");
   });
 });
