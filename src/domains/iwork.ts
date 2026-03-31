@@ -38,6 +38,7 @@ const domain: DomainModule = {
     },
     pages_export_pdf: {
       description: "Export the front Pages document to PDF",
+      timeout: 30_000,
       params: z.object({
         path: z.string().describe("POSIX path for the exported PDF"),
       }),
@@ -85,6 +86,7 @@ const domain: DomainModule = {
     },
     numbers_export_pdf: {
       description: "Export the front Numbers document to PDF",
+      timeout: 30_000,
       params: z.object({
         path: z.string().describe("POSIX path for the exported PDF"),
       }),
@@ -132,6 +134,7 @@ const domain: DomainModule = {
     },
     keynote_export_pdf: {
       description: "Export the front Keynote presentation to PDF",
+      timeout: 30_000,
       params: z.object({
         path: z.string().describe("POSIX path for the exported PDF"),
       }),

@@ -79,10 +79,12 @@ function cleanError(raw: string): { message: string; code: string | null; appNam
   }
 
   // Extract app name from "Erreur dans AppName :" or "AppName got an error"
+  // Supports multi-word names like "Google Chrome", "Apple Music"
   const appMatch =
-    raw.match(/Erreur dans (\w+)\s*:/) ||
-    raw.match(/error:\s*(\w+)\s+got an error/i) ||
-    raw.match(/(\w+):\s*L'application/i);
+    raw.match(/Erreur dans ([\w][\w\s-]*?)\s*:/) ||
+    raw.match(/error:\s*([\w][\w\s-]*?)\s+got an error/i) ||
+    raw.match(/([\w][\w\s-]*?):\s*L'application/i) ||
+    raw.match(/application "([\w][\w\s-]*?)"/i);
   if (appMatch) {
     appName = appMatch[1].trim();
   }
@@ -335,9 +337,15 @@ const FORBIDDEN_PATHS = [
   "/usr",
   "/bin",
   "/sbin",
+  "/etc",
+  "/var",
   "/private/var",
+  "/private/etc",
   "/Library/LaunchDaemons",
   "/Library/LaunchAgents",
+  "/Library/Preferences",
+  "/Library/StartupItems",
+  "/opt",
 ];
 
 /**
@@ -390,9 +398,13 @@ interface CacheEntry {
 }
 
 const _cache = new Map<string, CacheEntry>();
+const _inflight = new Map<string, Promise<ExecResult>>();
 
 /**
  * Cache a function result for a given TTL, returning the cached value on subsequent calls.
+ *
+ * Race-condition safe: if two calls arrive simultaneously for the same key,
+ * only one executes `fn()` — the other waits and reuses the result.
  *
  * Only successful results (`ok: true`) are cached. Failed results are never cached,
  * so the next call will retry the function.
@@ -401,30 +413,39 @@ const _cache = new Map<string, CacheEntry>();
  * @param ttlMs - Time-to-live in milliseconds before the entry expires
  * @param fn - Async function producing the result to cache
  * @returns The cached or freshly computed `ExecResult`
- *
- * @example
- * ```ts
- * const r = await cached("sysinfo.audio", 30_000, () =>
- *   runShell(["system_profiler", "SPAudioDataType"])
- * );
- * ```
  */
 export async function cached(
   key: string,
   ttlMs: number,
   fn: () => Promise<ExecResult>,
 ): Promise<ExecResult> {
+  // Check cache
   const now = Date.now();
   const entry = _cache.get(key);
   if (entry && (now - entry.ts) < ttlMs) {
     return { ok: true, output: entry.value };
   }
 
-  const result = await fn();
-  if (result.ok) {
-    _cache.set(key, { value: result.output, ts: now });
+  // Check if already in-flight (another call is computing this key)
+  const existing = _inflight.get(key);
+  if (existing) {
+    return existing;
   }
-  return result;
+
+  // Compute and track in-flight
+  const promise = fn().then((result) => {
+    if (result.ok) {
+      _cache.set(key, { value: result.output, ts: Date.now() });
+    }
+    _inflight.delete(key);
+    return result;
+  }).catch((err) => {
+    _inflight.delete(key);
+    return { ok: false, output: String(err) } as ExecResult;
+  });
+
+  _inflight.set(key, promise);
+  return promise;
 }
 
 /**
@@ -440,42 +461,43 @@ export function clearCache(): void {
 // CONCURRENCY GUARD
 // ══════════════════════════════════════════════════════════════════
 
-const _locks = new Map<string, Promise<void>>();
+/**
+ * Queue-based lock per resource. Each resource has a chain of promises.
+ * New callers append to the chain, ensuring strict serialization.
+ */
+const _lockChains = new Map<string, Promise<void>>();
 
 /**
  * Serialize access to a shared resource, preventing concurrent operations.
  *
- * If another call is already holding the lock for the same resource,
- * this call waits until it completes before proceeding. This prevents
- * race conditions when multiple tool calls target the same app simultaneously.
+ * Uses a promise-chain approach (not polling) that is race-condition free:
+ * each caller appends to the chain for the resource, guaranteeing FIFO order.
  *
  * @param resource - Lock name identifying the shared resource (e.g., `"safari"`, `"chrome"`)
  * @param fn - Async function to execute while holding the lock
  * @returns The return value of `fn`
- *
- * @example
- * ```ts
- * return withLock("safari", async () => {
- *   const r = await runAppleScript('tell application "Safari" to get URL of current tab of window 1');
- *   return r.ok ? r.output : "Error";
- * });
- * ```
  */
 export async function withLock<T>(resource: string, fn: () => Promise<T>): Promise<T> {
-  // Wait for any existing lock on this resource
-  while (_locks.has(resource)) {
-    await _locks.get(resource);
-  }
+  // Get the current tail of the chain (or resolved if no chain)
+  const prev = _lockChains.get(resource) ?? Promise.resolve();
 
-  // Create our lock
+  // Create a new link in the chain
   let releaseLock: () => void;
-  const lockPromise = new Promise<void>((res) => { releaseLock = res; });
-  _locks.set(resource, lockPromise);
+  const myLock = new Promise<void>((res) => { releaseLock = res; });
+
+  // Append our lock BEFORE awaiting (atomic — no gap for race)
+  _lockChains.set(resource, myLock);
+
+  // Wait for the previous holder to finish
+  await prev;
 
   try {
     return await fn();
   } finally {
-    _locks.delete(resource);
+    // Clean up if we're the tail
+    if (_lockChains.get(resource) === myLock) {
+      _lockChains.delete(resource);
+    }
     releaseLock!();
   }
 }
@@ -499,9 +521,14 @@ export async function withLock<T>(resource: string, fn: () => Promise<T>): Promi
  */
 export function safeSQL(s: string): string {
   return s
-    .replace(/'/g, "''")     // Escape single quotes
-    .replace(/;/g, "")       // Strip semicolons (prevent multi-statement)
-    .replace(/--/g, "")      // Strip SQL comments
-    .replace(/\0/g, "")      // Strip null bytes
-    .slice(0, 500);           // Limit length
+    .replace(/'/g, "''")           // Escape single quotes
+    .replace(/;/g, "")             // Strip semicolons (prevent multi-statement)
+    .replace(/--/g, "")            // Strip line comments
+    .replace(/\/\*/g, "")          // Strip block comment open
+    .replace(/\*\//g, "")          // Strip block comment close
+    .replace(/\b(?:UNION|INTERSECT|EXCEPT)\b/gi, "") // Strip set operators
+    .replace(/\b(?:DROP|ALTER|CREATE|INSERT|UPDATE|DELETE|ATTACH|DETACH|TABLE|INDEX|TRIGGER|VIEW)\b/gi, "") // Strip DDL/DML
+    .replace(/0x[0-9a-fA-F]+/g, "0") // Neutralize hex literals
+    .replace(/\0/g, "")            // Strip null bytes
+    .slice(0, 500);                 // Limit length
 }

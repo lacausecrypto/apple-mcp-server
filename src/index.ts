@@ -33,16 +33,19 @@ import { log } from "./executor.js";
 // ══════════════════════════════════════════════════════════════════
 
 const DESTRUCTIVE_ACTIONS: Record<string, Set<string>> = {
-  apple_finder: new Set(["empty_trash", "delete", "eject_all"]),
+  apple_finder: new Set(["empty_trash", "delete", "eject_all", "eject_disk"]),
   apple_system: new Set(["shutdown", "restart", "logout", "sleep", "eject_all_disks"]),
   apple_mail: new Set(["send", "mark_all_read", "move_to_trash"]),
   apple_twitter: new Set(["post", "post_draft", "reply", "like", "retweet"]),
-  apple_contacts: new Set(["delete"]),
-  apple_notes: new Set(["delete"]),
+  apple_contacts: new Set(["delete", "update_phone", "update_email"]),
+  apple_notes: new Set(["delete", "move"]),
   apple_reminders: new Set(["delete"]),
   apple_music: new Set(["delete_playlist", "remove_from_playlist"]),
-  apple_photos: new Set(["add_to_album"]),
-  apple_apps: new Set(["force_quit"]),
+  apple_photos: new Set(["add_to_album", "import"]),
+  apple_apps: new Set(["quit", "force_quit"]),
+  apple_calendar: new Set(["delete_event", "modify_event"]),
+  apple_clipboard: new Set(["clear"]),
+  apple_messages: new Set(["send"]),
 };
 
 function isDestructive(toolName: string, action: string): boolean {
@@ -127,6 +130,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   // Execute the action
   try {
     const result = await actionDef.handler(args ?? {});
+
+    // Guard against undefined/null handler returns
+    if (typeof result !== "string") {
+      log("WARN", `${name}.${action} returned ${typeof result} instead of string`);
+      return {
+        content: [{ type: "text", text: `${name}.${action} completed (no output)` }],
+      };
+    }
 
     // Warn if this was a destructive action
     const warning = isDestructive(name, action)

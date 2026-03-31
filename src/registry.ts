@@ -138,6 +138,12 @@ function zodToJsonSchema(schema: z.ZodType): Record<string, unknown> {
       enum: (schema as any)._def.values,
     };
   }
+  if (schema instanceof z.ZodDefault) {
+    return zodToJsonSchema((schema as any)._def.innerType);
+  }
+  if (schema instanceof z.ZodNullable) {
+    return zodToJsonSchema((schema as any)._def.innerType);
+  }
   if (schema instanceof z.ZodOptional) {
     return zodToJsonSchema((schema as any)._def.innerType);
   }

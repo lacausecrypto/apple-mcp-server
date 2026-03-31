@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { runAppleScript, safeAS } from "../executor.js";
+import { runAppleScript, safeAS, safePath } from "../executor.js";
 import type { DomainModule } from "../types.js";
 
 const domain: DomainModule = {
@@ -33,14 +33,15 @@ const domain: DomainModule = {
         path: z.string().describe("POSIX path to the file"),
       }),
       handler: async (p) => {
-        const path = p.path as string;
+        const validPath = safePath(p.path as string);
+        if (!validPath) return "Error: invalid or forbidden path";
         const r = await runAppleScript(
           'tell application "TextEdit"\n' +
             "    activate\n" +
-            `    open POSIX file "${safeAS(path)}"\n` +
+            `    open POSIX file "${safeAS(validPath)}"\n` +
             "end tell",
         );
-        return r.ok ? `Opened in TextEdit: ${path}` : `Error: ${r.output}`;
+        return r.ok ? `Opened in TextEdit: ${validPath}` : `Error: ${r.output}`;
       },
     },
     get_text: {

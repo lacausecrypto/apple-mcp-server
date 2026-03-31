@@ -89,11 +89,12 @@ const domain: DomainModule = {
       handler: async (p) => {
         const contact = p.contact as string;
         const limit = (p.limit as number | undefined) ?? 10;
+        const safeLim = Math.max(1, Math.min(100, limit));
         // Use parameterized-style quoting for the contact value
         const safeContact = safeSQL(contact);
         const r = await runShell([
           "sqlite3", CHAT_DB,
-          `SELECT CASE WHEN m.is_from_me=1 THEN 'Me' ELSE c.chat_identifier END || ': ' || m.text FROM message m JOIN chat_message_join cmj ON m.ROWID=cmj.message_id JOIN chat c ON cmj.chat_id=c.ROWID WHERE c.chat_identifier='${safeContact}' AND m.text IS NOT NULL ORDER BY m.date DESC LIMIT ${limit}`,
+          `SELECT CASE WHEN m.is_from_me=1 THEN 'Me' ELSE c.chat_identifier END || ': ' || m.text FROM message m JOIN chat_message_join cmj ON m.ROWID=cmj.message_id JOIN chat c ON cmj.chat_id=c.ROWID WHERE c.chat_identifier='${safeContact}' AND m.text IS NOT NULL ORDER BY m.date DESC LIMIT ${safeLim}`,
         ]);
         if (r.ok && r.output) {
           const lines = r.output

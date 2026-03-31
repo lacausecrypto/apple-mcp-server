@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { runShell } from "../executor.js";
+import { runShell, safePath } from "../executor.js";
 import type { DomainModule } from "../types.js";
 
 const defaultPath = "~/Desktop/screenshot.png";
@@ -18,9 +18,11 @@ const domain: DomainModule = {
           .describe("Save path (default: ~/Desktop/screenshot.png)"),
       }),
       handler: async (p) => {
-        const path = (p.path as string) || defaultPath;
-        const r = await runShell(["screencapture", "-x", path]);
-        return r.ok ? `Screenshot saved: ${path}` : `Error: ${r.output}`;
+        const p_path = (p.path as string) || "";
+        const finalPath = safePath(p_path) || safePath(defaultPath);
+        if (!finalPath) return "Error: invalid or forbidden path";
+        const r = await runShell(["screencapture", "-x", finalPath]);
+        return r.ok ? `Screenshot saved: ${finalPath}` : `Error: ${r.output}`;
       },
     },
     clipboard: {
@@ -46,16 +48,18 @@ const domain: DomainModule = {
       }),
       handler: async (p) => {
         const seconds = (p.seconds as number) || 5;
-        const path = (p.path as string) || defaultPath;
+        const p_path = (p.path as string) || "";
+        const finalPath = safePath(p_path) || safePath(defaultPath);
+        if (!finalPath) return "Error: invalid or forbidden path";
         const r = await runShell([
           "screencapture",
           "-x",
           "-T",
           String(seconds),
-          path,
+          finalPath,
         ]);
         return r.ok
-          ? `Screenshot in ${seconds}s: ${path}`
+          ? `Screenshot in ${seconds}s: ${finalPath}`
           : `Error: ${r.output}`;
       },
     },
@@ -71,11 +75,12 @@ const domain: DomainModule = {
           ),
       }),
       handler: async (p) => {
-        const path =
-          (p.path as string) || "~/Desktop/screenshot_area.png";
-        const r = await runShell(["screencapture", "-i", path]);
+        const p_path = (p.path as string) || "";
+        const finalPath = safePath(p_path) || safePath("~/Desktop/screenshot_area.png");
+        if (!finalPath) return "Error: invalid or forbidden path";
+        const r = await runShell(["screencapture", "-i", finalPath]);
         return r.ok
-          ? `Area screenshot saved: ${path}`
+          ? `Area screenshot saved: ${finalPath}`
           : `Error: ${r.output}`;
       },
     },
@@ -90,11 +95,12 @@ const domain: DomainModule = {
           ),
       }),
       handler: async (p) => {
-        const path =
-          (p.path as string) || "~/Desktop/screenshot_window.png";
-        const r = await runShell(["screencapture", "-w", path]);
+        const p_path = (p.path as string) || "";
+        const finalPath = safePath(p_path) || safePath("~/Desktop/screenshot_window.png");
+        if (!finalPath) return "Error: invalid or forbidden path";
+        const r = await runShell(["screencapture", "-w", finalPath]);
         return r.ok
-          ? `Window screenshot saved: ${path}`
+          ? `Window screenshot saved: ${finalPath}`
           : `Error: ${r.output}`;
       },
     },

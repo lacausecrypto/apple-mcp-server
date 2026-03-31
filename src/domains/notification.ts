@@ -23,7 +23,7 @@ const domain: DomainModule = {
         const sound = (p.sound as string) || "default";
         let script = `display notification "${safeAS(message)}" with title "${safeAS(title)}"`;
         if (sound) {
-          script += ` sound name "${safeAS(sound)}"`;
+          script += " " + `sound name "${safeAS(sound)}"`;
         }
         const r = await runAppleScript(script);
         return r.ok ? "Notification sent" : `Error: ${r.output}`;

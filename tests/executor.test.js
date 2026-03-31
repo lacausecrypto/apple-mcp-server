@@ -154,8 +154,8 @@ describe("safeSQL", () => {
     assert.equal(safeSQL("O'Brien"), "O''Brien");
   });
 
-  it("strips semicolons", () => {
-    assert.equal(safeSQL("value; DROP TABLE users"), "value DROP TABLE users");
+  it("strips semicolons and DDL keywords", () => {
+    assert.equal(safeSQL("value; DROP TABLE users"), "value   users");
   });
 
   it("strips SQL comments (--)", () => {
@@ -181,5 +181,54 @@ describe("safeSQL", () => {
 
   it("passes through safe strings unchanged", () => {
     assert.equal(safeSQL("hello world 123"), "hello world 123");
+  });
+
+  it("strips UNION keyword", () => {
+    const result = safeSQL("test' UNION SELECT * FROM msg");
+    assert.ok(!result.includes("UNION"), "should strip UNION");
+  });
+
+  it("strips block comments", () => {
+    const result = safeSQL("test /* comment */ OR 1=1");
+    assert.ok(!result.includes("/*"), "should strip block comment open");
+    assert.ok(!result.includes("*/"), "should strip block comment close");
+  });
+
+  it("neutralizes hex literals", () => {
+    const result = safeSQL("test OR 0x31=0x31");
+    assert.ok(!result.includes("0x31"), "should neutralize hex");
+  });
+
+  it("strips DDL keywords", () => {
+    const result = safeSQL("DROP ALTER CREATE INSERT UPDATE DELETE");
+    assert.equal(result.trim(), "");
+  });
+});
+
+describe("safePath (extended)", () => {
+  it("blocks /etc", () => {
+    assert.equal(safePath("/etc/passwd"), null);
+  });
+
+  it("blocks /var", () => {
+    assert.equal(safePath("/var/log/system.log"), null);
+  });
+
+  it("blocks /opt", () => {
+    assert.equal(safePath("/opt/homebrew/bin"), null);
+  });
+
+  it("blocks /private/etc", () => {
+    assert.equal(safePath("/private/etc/hosts"), null);
+  });
+
+  it("blocks /Library/Preferences", () => {
+    assert.equal(safePath("/Library/Preferences/com.apple.plist"), null);
+  });
+
+  it("allows ~/Desktop", () => {
+    const result = safePath("~/Desktop/file.txt");
+    assert.ok(result !== null);
+    assert.ok(result.includes("Desktop"));
   });
 });
