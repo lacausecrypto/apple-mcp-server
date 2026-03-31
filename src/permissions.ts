@@ -126,6 +126,13 @@ interface PermissionsConfig {
   unblocked?: string[];
   /** Move these from OPEN → PROTECTED (add confirmation) */
   protected?: string[];
+  /** Dry-run mode: ALL actions return preview without executing */
+  dry_run?: boolean;
+  /** Rate limiting configuration */
+  rate_limit?: {
+    global_per_min?: number;
+    protected_per_min?: number;
+  };
 }
 
 let _config: PermissionsConfig = {};
@@ -265,6 +272,31 @@ export function getPermissionSummary(): string {
     lines.push(`+ ${config.protected.length} extra protected by config`);
   }
 
+  if (config.dry_run) {
+    lines.push("DRY RUN MODE: all actions return preview without executing");
+  }
+  if (config.rate_limit) {
+    lines.push(`Rate limit: ${config.rate_limit.global_per_min ?? 30} global/min, ${config.rate_limit.protected_per_min ?? 5} protected/min`);
+  }
+
   lines.push(`Config: ${existsSync(CONFIG_PATH) ? CONFIG_PATH : "not found (using defaults)"}`);
   return lines.join("\n");
+}
+
+/**
+ * Check if dry-run mode is enabled.
+ */
+export function isDryRun(): boolean {
+  return loadConfig().dry_run === true;
+}
+
+/**
+ * Get rate limit config (or defaults).
+ */
+export function getRateLimitConfig(): { global_per_min: number; protected_per_min: number } {
+  const config = loadConfig();
+  return {
+    global_per_min: config.rate_limit?.global_per_min ?? 30,
+    protected_per_min: config.rate_limit?.protected_per_min ?? 5,
+  };
 }

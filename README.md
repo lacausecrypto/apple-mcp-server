@@ -108,6 +108,56 @@ Override defaults via `~/.config/apple-mcp/permissions.json`:
 
 Actions can be specified as `"actionName"` (global) or `"apple_tool.actionName"` (specific).
 
+### Rate Limiting
+
+Prevents spam and abuse. Two independent sliding-window counters:
+
+- **Global**: max 30 tool calls per minute (all actions)
+- **Protected**: max 5 confirmed destructive actions per minute
+
+When exceeded, the call is rejected with a wait time. Configurable:
+
+```json
+{ "rate_limit": { "global_per_min": 60, "protected_per_min": 10 } }
+```
+
+### Dry-Run Mode
+
+Preview every action without executing. Useful for testing what Claude would do:
+
+```json
+{ "dry_run": true }
+```
+
+```
+Claude: apple_finder.delete(path: "~/old.pdf", confirm: true)
+→ "[DRY RUN] Would execute apple_finder.delete (confirmed) — no action taken."
+```
+
+All actions return previews. Nothing is executed. The audit log records `dry_run` events.
+
+### Audit Log
+
+Every tool call is logged as a structured JSON line in `~/.local/occ/rag/apple-mcp-audit.jsonl`:
+
+```json
+{"ts":"2026-03-31T18:36:49Z","tool":"apple_volume","action":"get","permission":"open","confirmed":false,"dry_run":false,"result":"ok","duration_ms":104,"output":"Volume: 56%"}
+{"ts":"2026-03-31T18:36:52Z","tool":"apple_finder","action":"empty_trash","permission":"protected","confirmed":false,"dry_run":false,"result":"protected_no_confirm","duration_ms":0}
+```
+
+Queryable with jq:
+
+```bash
+# All blocked calls
+cat apple-mcp-audit.jsonl | jq 'select(.result=="blocked")'
+
+# Calls per tool
+cat apple-mcp-audit.jsonl | jq -s 'group_by(.tool) | map({tool: .[0].tool, count: length})'
+
+# Average duration per tool
+cat apple-mcp-audit.jsonl | jq -s 'group_by(.tool) | map({tool: .[0].tool, avg_ms: (map(.duration_ms) | add / length)})'
+```
+
 ## Tools
 
 | Tool | Actions | Notable protected/blocked |
@@ -148,7 +198,13 @@ Actions can be specified as `"actionName"` (global) or `"apple_tool.actionName"`
 
 ### What this provides
 
-**Permission system** — Three-level access control (OPEN/PROTECTED/BLOCKED) enforced before execution. Protected actions require explicit `confirm: true`. Configurable via JSON file.
+**Permission system** — Three-level access control (OPEN/PROTECTED/BLOCKED) enforced before execution. Protected actions require `confirm: true`. Configurable via JSON file.
+
+**Rate limiting** — Sliding-window counters: 30 calls/min global, 5 protected/min. Prevents abuse loops.
+
+**Dry-run mode** — All actions return previews without executing. Safe testing of what Claude would do.
+
+**Structured audit log** — Every call logged as JSON line (tool, action, permission, result, duration). Queryable with jq.
 
 **Input validation** — Not sandboxing. The server validates inputs before passing them to AppleScript or shell:
 

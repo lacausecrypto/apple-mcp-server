@@ -889,6 +889,31 @@ Read-only data Claude can attach to its context without a tool call.
 
 Actions are checked **before execution** at three levels: OPEN, PROTECTED (require `confirm: true`), BLOCKED (never executed). See [Permission Levels](#permission-levels) for the full list.
 
+### Rate limiting
+
+Two sliding-window counters (default, configurable in permissions.json):
+
+| Counter | Default | Scope |
+|---------|---------|-------|
+| Global | 30/min | All tool calls |
+| Protected | 5/min | Confirmed destructive actions only |
+
+When exceeded, returns an error with wait time.
+
+### Dry-run mode
+
+Set `"dry_run": true` in permissions.json. All actions return `[DRY RUN] Would execute ...` without executing. Audit log records `dry_run` events.
+
+### Structured audit log
+
+Every tool call → one JSON line in `~/.local/occ/rag/apple-mcp-audit.jsonl`:
+
+```json
+{"ts":"...","tool":"apple_volume","action":"get","permission":"open","confirmed":false,"dry_run":false,"result":"ok","duration_ms":104,"output":"Volume: 56%"}
+```
+
+Fields: `ts`, `tool`, `action`, `permission`, `confirmed`, `dry_run`, `result` (ok/error/blocked/protected_no_confirm/dry_run/rate_limited), `duration_ms`, `output`, `error`.
+
 Config: `~/.config/apple-mcp/permissions.json`
 
 ### Path allowlist
